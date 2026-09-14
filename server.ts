@@ -150,6 +150,16 @@ async function startServer() {
     });
   });
 
+  // Sync Telegram Bot Profile, Description Bubble & Commands Menu
+  app.post('/api/telegram/sync-profile', async (req, res) => {
+    try {
+      const result = await telegramService.syncBotProfileAndCommands();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // Live Telegram Webhook Endpoint
   app.post('/api/telegram/webhook', async (req, res) => {
     try {

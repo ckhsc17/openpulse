@@ -17,6 +17,10 @@ import {
   RefreshCw,
   Radio,
   HelpCircle,
+  MessageSquare,
+  Compass,
+  Layers,
+  FileText,
 } from 'lucide-react';
 import { BotStatusInfo } from '../types';
 
@@ -32,23 +36,41 @@ export const BotSetupGuide: React.FC<BotSetupGuideProps> = ({ status, onSetWebho
   });
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectResult, setReconnectResult] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<{ loading: boolean; result?: string; success?: boolean }>({
+    loading: false,
+  });
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [copiedCommands, setCopiedCommands] = useState(false);
+  const [copiedDescription, setCopiedDescription] = useState(false);
+  const [copiedAbout, setCopiedAbout] = useState(false);
 
-  // Compute the target webhook URL
+  // Compute target webhook URL
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
   const defaultWebhookUrl = status?.webhookUrl || (currentOrigin ? `${currentOrigin}/api/telegram/webhook` : '/api/telegram/webhook');
   const [customWebhookUrl, setCustomWebhookUrl] = useState('');
 
   const targetUrl = customWebhookUrl.trim() || defaultWebhookUrl;
 
-  const commandListText = `brief - 獲取最新開源科技與研究情報
-contribute - 尋找熱門開源專案 Good First Issue 與 PR 任務
-subscribe - 訂閱每日 08:00 與 17:00 定時推播
-unsubscribe - 取消定時推播
-topics - 自訂偏好的關注技術領域
-status - 查看機器人連線與排程狀態
-help - 查看指令使用指南`;
+  const botDescriptionText = `🚀 歡迎使用 OpenPulse！
+專為工程師、開源愛好者與前沿研究員打造的情報與 PR 獵場機器人。
+
+每日 08:00 與 17:00 自動為你精煉：
+• 🤖 AI 前沿突破與開源模型 (arXiv, Hugging Face, vLLM, DeepSeek)
+• 💻 基礎架構、高效能編譯器與資料庫 (Rust, Go, C++, Linux)
+• 🔬 跨學科計算科學 (生醫演算法, 量子模擬)
+• 🛠️ 【獨家】精選開源專案 Good First Issue 與 PR 認領獵場
+
+點擊下方「Start」按鈕或輸入 /brief 立即獲取最新情報！`;
+
+  const botAboutText = `⚡ OpenPulse: 每日 08:00 & 17:00 開源科技情報、前沿 AI 研究與 GitHub PR 獵場機器人！`;
+
+  const commandListText = `brief - ⚡ 立即生成最新開源研究情報
+contribute - 🛠️ 尋找熱門專案 Good First Issue 與 PR 獵場
+subscribe - 🔔 訂閱每日 08:00 與 17:00 定時推播
+unsubscribe - 🔕 取消定時推播
+topics - ⚙️ 自訂感興趣的專業技術領域
+status - 📊 檢視機器人運行狀態與排程
+help - 📖 檢視完整指令說明手冊`;
 
   const handleSetWebhookClick = async () => {
     setWebhookStatus({ loading: true });
@@ -102,14 +124,47 @@ help - 查看指令使用指南`;
     }
   };
 
-  const copyText = (text: string, type: 'webhook' | 'commands') => {
+  const handleSyncProfileClick = async () => {
+    setSyncStatus({ loading: true });
+    try {
+      const res = await fetch('/api/telegram/sync-profile', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        setSyncStatus({
+          loading: false,
+          success: true,
+          result: '🎉 同步成功！已為你的 Telegram 機器人配置「What can this bot do?」介紹氣泡、資料卡簡介與 [Menu] 指令選單！',
+        });
+      } else {
+        setSyncStatus({
+          loading: false,
+          success: false,
+          result: `同步失敗: ${data.error || data.results?.error || '請確認 TELEGRAM_BOT_TOKEN 是否正確。'}`,
+        });
+      }
+    } catch (err: any) {
+      setSyncStatus({
+        loading: false,
+        success: false,
+        result: `發生錯誤: ${err.message}`,
+      });
+    }
+  };
+
+  const copyText = (text: string, type: 'webhook' | 'commands' | 'description' | 'about') => {
     navigator.clipboard.writeText(text);
     if (type === 'webhook') {
       setCopiedWebhook(true);
       setTimeout(() => setCopiedWebhook(false), 2000);
-    } else {
+    } else if (type === 'commands') {
       setCopiedCommands(true);
       setTimeout(() => setCopiedCommands(false), 2000);
+    } else if (type === 'description') {
+      setCopiedDescription(true);
+      setTimeout(() => setCopiedDescription(false), 2000);
+    } else if (type === 'about') {
+      setCopiedAbout(true);
+      setTimeout(() => setCopiedAbout(false), 2000);
     }
   };
 
@@ -135,14 +190,16 @@ help - 查看指令使用指南`;
             </div>
           </div>
 
-          <button
-            onClick={handleReconnectClick}
-            disabled={reconnecting}
-            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${reconnecting ? 'animate-spin' : ''}`} />
-            <span>{reconnecting ? '測試重連中...' : '測試重連 Telegram'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleReconnectClick}
+              disabled={reconnecting}
+              className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${reconnecting ? 'animate-spin' : ''}`} />
+              <span>{reconnecting ? '測試重連中...' : '測試重連 Telegram'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Live Diagnostics Metrics Grid */}
@@ -209,24 +266,145 @@ help - 查看指令使用指南`;
             <span>Telegram API 警告: {status.lastError}</span>
           </div>
         )}
+      </div>
 
-        {/* Why /brief had no response explanation box */}
-        <div className="mt-4 p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 text-xs space-y-2">
-          <div className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-            <HelpCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            <span>為什麼剛剛在 Telegram 輸入 /brief 沒有反應？</span>
+      {/* NEW: Telegram Greeting & Bubbles Showcase & One-Click Sync */}
+      <div className="bg-gradient-to-br from-zinc-900 via-sky-950 to-indigo-950 rounded-3xl p-6 sm:p-8 text-white border-2 border-sky-500/40 shadow-2xl relative overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div className="flex items-center space-x-3">
+            <div className="w-12 h-12 rounded-2xl bg-sky-500 flex items-center justify-center text-white shadow-lg shadow-sky-500/30">
+              <MessageSquare className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+                  💬 Telegram 機器人引導氣泡與選單設定
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-400/20 text-sky-300 border border-sky-400/30">
+                  體驗優化
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-zinc-300">
+                讓任何人第一次點進 Telegram 機器人時，就能看到專業的「功能介紹氣泡」與底部的「[Menu] 指令快捷選單」。
+              </p>
+            </div>
           </div>
-          <ol className="list-decimal pl-5 space-y-1 text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
-            <li>
-              <strong>環境變數剛存檔需重啟載入</strong>：在 AI Studio 的 Settings &gt; Secrets 設定 <code>TELEGRAM_BOT_TOKEN</code> 後，後端需要重新啟動以讀取新的 Secret。現在系統已為你啟動主動長輪詢。
-            </li>
-            <li>
-              <strong>Cloud Run 代理與 Webhook 攔截</strong>：在開發模式下，Telegram 伺服器外部 Webhook 連進來時常會被平台身分驗證攔截；現在系統已自動升級為<strong>「出站長輪詢 (Long Polling)」</strong>，伺服器主動連向 Telegram，完全不受網址與權限限制！
-            </li>
-            <li>
-              <strong>Markdown 符號容錯保護</strong>：開源專案名稱常有底線 <code>_</code> 或中括號 <code>[]</code>，若未妥善轉義 Telegram API 會退回 400 錯誤；現在已加入自動降級純文字與分段機制，保證訊息 100% 送達。
-            </li>
-          </ol>
+
+          <button
+            onClick={handleSyncProfileClick}
+            disabled={syncStatus.loading || !status?.hasToken}
+            className="px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition flex items-center gap-2 disabled:opacity-50"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>{syncStatus.loading ? '正在同步至 Telegram...' : '⚡ 一鍵向 Telegram 官方同步介紹氣泡與選單'}</span>
+          </button>
+        </div>
+
+        {syncStatus.result && (
+          <div
+            className={`p-3.5 rounded-xl text-xs flex items-center gap-2.5 mb-6 ${
+              syncStatus.success
+                ? 'bg-emerald-950/90 text-emerald-200 border border-emerald-700/60'
+                : 'bg-rose-950/90 text-rose-200 border border-rose-700/60'
+            }`}
+          >
+            {syncStatus.success ? (
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+            ) : (
+              <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400" />
+            )}
+            <span className="leading-relaxed">{syncStatus.result}</span>
+          </div>
+        )}
+
+        {/* 3 Visual Bubbles Comparison Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Card 1: What can this bot do */}
+          <div className="p-4 rounded-2xl bg-black/40 border border-white/10 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>① 點擊 Start 前的介紹氣泡</span>
+                </span>
+                <button
+                  onClick={() => copyText(botDescriptionText, 'description')}
+                  className="text-zinc-400 hover:text-white text-[11px] flex items-center gap-1"
+                >
+                  {copiedDescription ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedDescription ? '已複製' : '複製'}</span>
+                </button>
+              </div>
+              <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700/60 text-[11px] font-mono leading-relaxed text-zinc-300 whitespace-pre-line">
+                {botDescriptionText}
+              </div>
+            </div>
+            <p className="text-[11px] text-zinc-400 mt-2">
+              這是 Telegram 原生展示在空白聊天室正中間的「What can this bot do?」卡片，使用者尚未點擊 Start 就會看見。
+            </p>
+          </div>
+
+          {/* Card 2: Interactive Greeting Bubble on /start */}
+          <div className="p-4 rounded-2xl bg-black/40 border border-white/10 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>② 點擊 Start 後的歡迎氣泡</span>
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
+                  程式自動回覆
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700/60 text-[11px] space-y-2">
+                <p className="text-zinc-200">
+                  👋 嗨！歡迎使用 <strong>OpenPulse</strong> 開源與前沿科技情報機器人！每日 08:00 與 17:00 自動精煉前沿突破與 PR 獵場。
+                </p>
+                <div className="grid grid-cols-2 gap-1 pt-1">
+                  <div className="p-1.5 rounded-lg bg-indigo-600/40 text-center text-[10px] font-semibold text-indigo-200 border border-indigo-500/30">
+                    ⚡ 生成情報 (/brief)
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-indigo-600/40 text-center text-[10px] font-semibold text-indigo-200 border border-indigo-500/30">
+                    🛠️ PR 獵場 (/contribute)
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-indigo-600/40 text-center text-[10px] font-semibold text-indigo-200 border border-indigo-500/30">
+                    🔔 訂閱每日定時推送
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-indigo-600/40 text-center text-[10px] font-semibold text-indigo-200 border border-indigo-500/30">
+                    ⚙️ 偏好領域設定
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-zinc-400 mt-2">
+              使用者點擊「Start」按鈕後立即收到的圖文氣泡，下方帶有 4 個即時 Inline 按鈕，點擊立即反應。
+            </p>
+          </div>
+
+          {/* Card 3: [Menu] Commands */}
+          <div className="p-4 rounded-2xl bg-black/40 border border-white/10 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>③ 輸入框常駐 [Menu] 選單</span>
+                </span>
+                <button
+                  onClick={() => copyText(commandListText, 'commands')}
+                  className="text-zinc-400 hover:text-white text-[11px] flex items-center gap-1"
+                >
+                  {copiedCommands ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedCommands ? '已複製' : '複製'}</span>
+                </button>
+              </div>
+              <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700/60 text-[11px] font-mono leading-relaxed text-zinc-300 whitespace-pre-line">
+                {commandListText}
+              </div>
+            </div>
+            <p className="text-[11px] text-zinc-400 mt-2">
+              Telegram 輸入框左側的藍色按鈕。點開後列出所有指令說明，完全不需手動輸入斜線指令！
+            </p>
+          </div>
         </div>
       </div>
 
@@ -242,14 +420,14 @@ help - 查看指令使用指南`;
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-                  ⚡ 一鍵註冊 Webhook 到 Telegram
+                  ⚡ 備援：一鍵註冊 Webhook 到 Telegram
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
-                  即按即連
+                  選用
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-zinc-300">
-                若你將應用部署至公開網址或已綁定網域，點擊此處即可自動將 Telegram 轉為 Webhook 模式。
+                若你未來將應用部署至固定公開網域名稱，可在此一鍵註冊 Webhook；目前主動長輪詢已可直接運作。
               </p>
             </div>
           </div>
@@ -300,7 +478,7 @@ help - 查看指令使用指南`;
                 className="px-6 py-3 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 active:from-sky-600 active:to-indigo-700 text-white font-bold text-xs sm:text-sm shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2 flex-shrink-0 disabled:opacity-50"
               >
                 <Zap className="w-4 h-4 fill-current" />
-                <span>{webhookStatus.loading ? '正在向 Telegram 註冊...' : '立即一鍵註冊 Webhook'}</span>
+                <span>{webhookStatus.loading ? '正在向 Telegram 註冊...' : '立即註冊 Webhook'}</span>
               </button>
             </div>
           </div>
@@ -333,7 +511,7 @@ help - 查看指令使用指南`;
           </div>
           <div>
             <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-              公開部署 3 步驟檢核清單 (Telegram Public Checklist)
+              公開部署與群組使用指南 (Telegram Public Checklist)
             </h3>
             <p className="text-xs text-zinc-500">
               完成以下步驟即可讓全球使用者在個人對話、技術社群群組與頻道中自由訂閱：
@@ -376,7 +554,7 @@ help - 查看指令使用指南`;
                 自動雙向連線
               </h4>
               <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed mb-3">
-                當 Token 填妥後，後端會自動發動出站長輪詢主動監聽，你只要在 Telegram 傳送 <code>/start</code> 或 <code>/brief</code> 即可直接對話！
+                當 Token 填妥後，後端會自動發動出站長輪詢主動監聽，並自動同步氣泡與選單，傳送 <code>/start</code> 或 <code>/brief</code> 即可直接對話！
               </p>
             </div>
             <div className="p-2.5 rounded-xl bg-white dark:bg-zinc-900 text-[11px] text-indigo-600 dark:text-indigo-300 font-semibold border border-indigo-200 dark:border-indigo-900/80">
@@ -391,96 +569,22 @@ help - 查看指令使用指南`;
                 <span className="w-7 h-7 rounded-full bg-sky-100 dark:bg-sky-950 text-sky-600 dark:text-sky-300 font-bold text-xs flex items-center justify-center">
                   3
                 </span>
-                <span className="text-[11px] font-semibold text-sky-600 dark:text-sky-400">權限與選單</span>
+                <span className="text-[11px] font-semibold text-sky-600 dark:text-sky-400">邀請入群與廣播</span>
               </div>
               <h4 className="font-bold text-sm text-zinc-900 dark:text-zinc-100 mb-1.5">
-                開放入群與指令選單
+                群組協作與廣播
               </h4>
               <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed mb-3">
-                在 @BotFather 輸入 <code>/setjoingroups</code> 啟用入群功能；輸入 <code>/setcommands</code> 貼上下方標準指令。
+                在 @BotFather 輸入 <code>/setjoingroups</code> 啟用入群功能；把機器人邀請加入你的技術群組輸入 <code>/subscribe</code> 即可全群共享。
               </p>
             </div>
             <button
-              onClick={() => copyText(commandListText, 'commands')}
+              onClick={() => copyText(botAboutText, 'about')}
               className="w-full py-2 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 text-xs font-semibold transition flex items-center justify-center gap-1.5"
             >
-              {copiedCommands ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedCommands ? '已複製指令表！' : '複製 Bot 指令表'}</span>
+              {copiedAbout ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedAbout ? '已複製簡介！' : '複製 Bot 簡介與分享文案'}</span>
             </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Deep Enhancement Proposal & Roadmap Section */}
-      <div className="bg-gradient-to-br from-zinc-900 via-zinc-950 to-sky-950 rounded-3xl p-6 sm:p-8 text-white border border-zinc-800 shadow-xl">
-        <div className="flex items-center space-x-3 mb-3">
-          <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
-            <Sparkles className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-lg font-bold tracking-tight">
-              💡 深度進階功能提案 (還有什麼可以做得更詳盡？)
-            </h3>
-            <p className="text-xs text-zinc-400">
-              針對你提出的需求，以下是為科技研究者與開源貢獻者量身打造的 5 大殺手級功能擴充藍圖：
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-          {/* Idea 1 */}
-          <div className="p-4 rounded-xl bg-white/5 border border-white/10 hover:border-sky-500/40 transition">
-            <div className="flex items-center space-x-2 text-sky-400 font-semibold text-sm mb-1.5">
-              <Sliders className="w-4 h-4" />
-              <span>1. 開發者技能樹與 PR 智慧配對 (Tech-Stack PR Matcher)</span>
-            </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              使用者可發送 <code>/mytech rust python beginners</code>。Bot 在每日彙整時，會透過向量語意過濾出完全相容其熟悉語言、難度與貢獻經驗的 Issue，不再被不相關的語言干擾。
-            </p>
-          </div>
-
-          {/* Idea 2 */}
-          <div className="p-4 rounded-xl bg-white/5 border border-white/10 hover:border-emerald-500/40 transition">
-            <div className="flex items-center space-x-2 text-emerald-400 font-semibold text-sm mb-1.5">
-              <GitCommit className="w-4 h-4" />
-              <span>2. AI PR 解題思路與起手腳本 (AI PR Kickstart Prompt)</span>
-            </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              在推播的每則 PR 機會下方附帶「⚡ 生成解題思路」按鈕。點擊後，Gemini 分析該 Issue 的描述與倉庫結構，直接給予：① 可能涉及的代碼檔案路徑、② 測試用例撰寫模板、③ PR 標題與修復骨架。
-            </p>
-          </div>
-
-          {/* Idea 3 */}
-          <div className="p-4 rounded-xl bg-white/5 border border-white/10 hover:border-purple-500/40 transition">
-            <div className="flex items-center space-x-2 text-purple-400 font-semibold text-sm mb-1.5">
-              <Headphones className="w-4 h-4" />
-              <span>3. 晨間 60 秒科技語音 Podcast (Gemini TTS 語音朗讀)</span>
-            </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              早上 08:00 推播時，除了 Markdown 文本外，自動調用 <code>gemini-3.1-flash-tts-preview</code> 渲染出 60 秒雙主播或單播的語音廣播檔 (Voice Note)，方便研究人員在通勤途中收聽。
-            </p>
-          </div>
-
-          {/* Idea 4 */}
-          <div className="p-4 rounded-xl bg-white/5 border border-white/10 hover:border-amber-500/40 transition">
-            <div className="flex items-center space-x-2 text-amber-400 font-semibold text-sm mb-1.5">
-              <Flame className="w-4 h-4" />
-              <span>4. 開源星數異動雷達與漏洞快訊 (Sudden Spike & Security Alert)</span>
-            </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              當 GitHub 出現單日暴增超過 2,000 Stars 的黑馬專案、或知名核心套件（如 OpenSSL, PyTorch）發布重大安全性修補與 Breaking Change 時，觸發非定時的即時快訊 (Breaking News)。
-            </p>
-          </div>
-
-          {/* Idea 5 */}
-          <div className="p-4 rounded-xl bg-white/5 border border-white/10 hover:border-rose-500/40 transition md:col-span-2">
-            <div className="flex items-center space-x-2 text-rose-400 font-semibold text-sm mb-1.5">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>5. 群組協作：PR 認領與防撞機制 (Community PR Claiming System)</span>
-            </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              在公開技術群組中推播 PR 時，群友可直接點擊「🙋 我來認領此 PR」。Bot 會在該則消息更新「由 @username 認領中」，避免社群多人重複開 Issue 或提交相互衝突的 PR，強化技術開源協同。
-            </p>
           </div>
         </div>
       </div>

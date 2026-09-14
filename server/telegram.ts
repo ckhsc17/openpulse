@@ -104,6 +104,50 @@ export class TelegramService {
     return await this.callTelegramApi('getWebhookInfo', {});
   }
 
+  // Sync Telegram Bot Description, Short Description (Bio), and Commands Menu
+  public async syncBotProfileAndCommands(): Promise<{ ok: boolean; results: Record<string, any> }> {
+    if (!this.hasToken) {
+      return { ok: false, results: { error: 'TELEGRAM_BOT_TOKEN 尚未設定' } };
+    }
+
+    const description = `🚀 歡迎使用 OpenPulse！
+專為工程師、開源愛好者與前沿研究員打造的情報與 PR 獵場機器人。
+
+每日 08:00 與 17:00 自動為你精煉：
+• 🤖 AI 前沿突破與開源模型 (arXiv, Hugging Face, vLLM, DeepSeek)
+• 💻 基礎架構、高效能編譯器與資料庫 (Rust, Go, C++, Linux)
+• 🔬 跨學科計算科學 (生醫演算法, 量子模擬)
+• 🛠️ 【獨家】精選開源專案 Good First Issue 與 PR 認領獵場
+
+點擊下方「Start」按鈕或輸入 /brief 立即獲取最新情報！`;
+
+    const shortDescription = `⚡ OpenPulse: 每日 08:00 & 17:00 開源科技情報、前沿 AI 研究與 GitHub PR 獵場機器人！`;
+
+    const commands = [
+      { command: 'brief', description: '⚡ 立即生成最新開源研究情報' },
+      { command: 'contribute', description: '🛠️ 尋找熱門專案 Good First Issue 與 PR 獵場' },
+      { command: 'subscribe', description: '🔔 訂閱每日 08:00 與 17:00 定時推播' },
+      { command: 'unsubscribe', description: '🔕 取消定時推播' },
+      { command: 'topics', description: '⚙️ 自訂感興趣的專業技術領域' },
+      { command: 'status', description: '📊 檢視機器人運行狀態與排程' },
+      { command: 'help', description: '📖 檢視完整指令說明手冊' },
+    ];
+
+    const results: Record<string, any> = {};
+
+    // 1. Set Chat Description (the large greeting bubble on empty chats before Start)
+    results.description = await this.callTelegramApi('setMyDescription', { description });
+
+    // 2. Set Short Description (shown in bot info card and link preview)
+    results.shortDescription = await this.callTelegramApi('setMyShortDescription', { short_description: shortDescription });
+
+    // 3. Set Commands (populates the blue [Menu] button in Telegram)
+    results.commands = await this.callTelegramApi('setMyCommands', { commands });
+
+    console.log('[Telegram Profile & Menu Sync Results]:', results);
+    return { ok: Boolean(results.commands?.ok || results.description?.ok), results };
+  }
+
   // Robust send message: auto-splits long text & falls back to plain text if markdown formatting errors occur
   public async sendMessage(
     chatId: string | number,
@@ -319,6 +363,12 @@ export class TelegramService {
     const me = await this.getMe();
     if (me.ok) {
       console.log(`[Telegram Poller] Connected successfully as ${me.username}`);
+      // Auto-sync Description, Short Description, and Commands Menu to Telegram
+      try {
+        await this.syncBotProfileAndCommands();
+      } catch (e) {
+        console.warn('[Telegram Profile Sync Notice]:', e);
+      }
     }
 
     // Polling loop
