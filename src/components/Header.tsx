@@ -55,6 +55,27 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Quick Schedule Pill & Action Trigger */}
           <div className="flex items-center space-x-2 sm:space-x-3">
             <button
+              id="btn-catchup-1700"
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/telegram/catchup-1700', { method: 'POST' });
+                  const data = await res.json();
+                  if (data.success) {
+                    alert(`✅ 已為全體訂閱者補發 17:00 晚報！\n成功發送: ${data.deliveryStats?.sentCount ?? 0} 人`);
+                  } else {
+                    alert(`⚠️ 補發失敗: ${data.error || '未知錯誤'}`);
+                  }
+                } catch (e: any) {
+                  alert(`⚠️ 補發出錯: ${e.message}`);
+                }
+              }}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition shadow-sm"
+              title="若剛才 17:00 未收到，點擊此處立即補發最新晚報"
+            >
+              <span>🚀 補發 17:00 晚報</span>
+            </button>
+
+            <button
               id="btn-goto-webhook"
               onClick={() => setActiveTab('guide')}
               className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition shadow-sm"

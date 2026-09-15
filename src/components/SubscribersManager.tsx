@@ -58,6 +58,53 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {/* 17:00 Notification Diagnostic & Instant Catch-up Banner */}
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+              <h3 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                17:00 手機未收到推播？診斷說明與一鍵補發
+              </h3>
+            </div>
+            <p className="text-xs text-amber-800/90 dark:text-amber-300/90 leading-relaxed max-w-2xl">
+              <strong>原因說明：</strong>Telegram 官方安全政策規定，任何 Bot <strong>無法主動向從未對其發送過訊息的帳號發送私訊</strong>。
+              請用手機開啟 Telegram 搜尋 <a href="https://t.me/open_pulse_bot" target="_blank" rel="noreferrer" className="underline font-bold text-amber-900 dark:text-amber-100">@open_pulse_bot</a>，按一下 <strong>Start</strong> 或發送 <code>/start</code>。
+              系統會將您的 Chat ID 永久寫入磁碟並立即為您推播！
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="https://t.me/open_pulse_bot"
+              target="_blank"
+              rel="noreferrer"
+              className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+            >
+              <span>📱 開啟 @open_pulse_bot</span>
+            </a>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/telegram/catchup-1700', { method: 'POST' });
+                  const data = await res.json();
+                  if (data.success) {
+                    alert(`✅ 已為全體訂閱者補發 17:00 晚報！\n成功發送: ${data.deliveryStats?.sentCount ?? 0} 人`);
+                  } else {
+                    alert(`⚠️ 補發失敗: ${data.error || '未知錯誤'}`);
+                  }
+                } catch (e: any) {
+                  alert(`⚠️ 補發出錯: ${e.message}`);
+                }
+              }}
+              className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+            >
+              <span>🚀 立即補發 17:00 晚報</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Schedule Banner */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Morning Slot */}
@@ -236,11 +283,20 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({
                     </span>
                   </td>
                   <td className="py-3.5">
-                    <div className="font-semibold text-zinc-900 dark:text-zinc-100">
-                      {sub.title}
+                    <div className="flex items-center gap-1.5 font-semibold text-zinc-900 dark:text-zinc-100">
+                      <span>{sub.title}</span>
+                      {String(sub.chatId).startsWith('demo-') ? (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-normal">
+                          範例
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-medium">
+                          真實 Telegram
+                        </span>
+                      )}
                     </div>
                     <div className="text-[11px] text-zinc-400 font-mono">
-                      {String(sub.chatId)}
+                      {String(sub.chatId)} {sub.username ? `(@${sub.username})` : ''}
                     </div>
                   </td>
                   <td className="py-3.5">

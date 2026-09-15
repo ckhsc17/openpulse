@@ -64,6 +64,8 @@ export interface BotStatusInfo {
   lastBroadcastAt: string | null;
   nextBroadcastAt: string;
   isSimulated: boolean;
+  isPolling?: boolean;
+  serverUptimeSec?: number;
   lastPollAt?: string | null;
   lastUpdateAt?: string | null;
   lastError?: string | null;

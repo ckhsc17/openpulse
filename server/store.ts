@@ -1,4 +1,8 @@
+import fs from 'fs';
+import path from 'path';
 import { DigestReport, Subscriber, IntelligenceItem, BotStatusInfo } from '../src/types';
+
+const SUBSCRIBERS_FILE = path.join(process.cwd(), 'data_subscribers.json');
 
 // Initial curated intelligence data to provide immediate value
 const initialItems: IntelligenceItem[] = [
@@ -224,6 +228,35 @@ class DataStore {
   private broadcastCount: number = 42;
   private lastBroadcastAt: string | null = new Date(Date.now() - 3600000 * 3).toISOString();
 
+  constructor() {
+    this.loadSubscribers();
+  }
+
+  private loadSubscribers(): void {
+    try {
+      if (fs.existsSync(SUBSCRIBERS_FILE)) {
+        const raw = fs.readFileSync(SUBSCRIBERS_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          this.subscribers = parsed;
+          console.log(`[DataStore] Loaded ${this.subscribers.length} persistent subscribers from disk.`);
+        }
+      } else {
+        this.saveSubscribers();
+      }
+    } catch (err) {
+      console.warn('[DataStore] Failed to load subscribers from disk, using defaults:', err);
+    }
+  }
+
+  private saveSubscribers(): void {
+    try {
+      fs.writeFileSync(SUBSCRIBERS_FILE, JSON.stringify(this.subscribers, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('[DataStore] Failed to save subscribers to disk:', err);
+    }
+  }
+
   public getDigests(): DigestReport[] {
     return this.digests;
   }
@@ -252,6 +285,8 @@ class DataStore {
       if (sub.title) this.subscribers[existingIndex].title = sub.title;
       if (sub.username) this.subscribers[existingIndex].username = sub.username;
       if (sub.preferredTopics?.length) this.subscribers[existingIndex].preferredTopics = sub.preferredTopics;
+      this.saveSubscribers();
+      console.log(`[DataStore] Updated existing subscriber ${sub.chatId} (${sub.username || sub.title}) and saved to disk.`);
       return this.subscribers[existingIndex];
     }
     const newSub: Subscriber = {
@@ -261,6 +296,8 @@ class DataStore {
       preferredTopics: sub.preferredTopics?.length ? sub.preferredTopics : ['ai', 'cs_infra', 'science', 'pr_contribution']
     };
     this.subscribers.unshift(newSub);
+    this.saveSubscribers();
+    console.log(`[DataStore] Added new persistent subscriber ${newSub.chatId} (${newSub.username || newSub.title}) and saved to disk.`);
     return newSub;
   }
 
@@ -268,6 +305,8 @@ class DataStore {
     const sub = this.subscribers.find(s => String(s.chatId) === String(chatId));
     if (sub) {
       sub.isActive = false;
+      this.saveSubscribers();
+      console.log(`[DataStore] Deactivated subscriber ${chatId} and saved to disk.`);
       return true;
     }
     return false;

@@ -75,29 +75,103 @@
 
 ---
 
-## 🛠️ 技術架構與模組
+## 🛠️ 系統架構圖 (System Architecture)
 
+本系統採用 **事件驅動 + 雙軌連線 + 定時排程 + AI 多源情報感知** 的全端微服務架構，支援自動保活心跳與容錯自癒：
+
+```mermaid
+flowchart TB
+    %% =======================
+    %% 1. 客戶端與展示層
+    %% =======================
+    subgraph Clients["📱 使用者端與前端展示層 (Clients Layer)"]
+        direction LR
+        TG_User["📱 Telegram 用戶端<br/>(iOS / Android / Desktop)<br/>• 接收定時推播<br/>• 發送指令 /brief, /contribute"]
+        Web_UI["💻 Web 戰情儀表板 (React 18 + Tailwind)<br/>• 最新情報與 PR 獵場檢視<br/>• 即時對話模擬器<br/>• 訂閱名冊管理與一鍵補發<br/>• 25s 心跳保活 (Keep-Alive Ping)"]
+    end
+
+    %% =======================
+    %% 2. 網關與接入層
+    %% =======================
+    subgraph Gateway["🚪 服務網關與通訊接入層 (Gateway & Transport)"]
+        direction TB
+        NginxProxy["Reverse Proxy (Port 3000 Ingress)"]
+        ExpressServer["Express.js API 伺服器 (server.ts)<br/>• REST API (/api/*)<br/>• 靜態資源託管<br/>• 服務健康診斷與心跳接收"]
+        
+        subgraph TelegramTransport["Telegram 雙軌連線引擎 (Dual-Engine)"]
+            direction LR
+            LongPoller["🔄 主動長輪詢 (Long Polling)<br/>• 20s Long Poll<br/>• 28s 強制超時保護<br/>• 30s 看門狗 (Watchdog 自動自癒)"]
+            WebhookEndpoint["🪝 Webhook 接收端點<br/>• /api/telegram/webhook<br/>• 簽名金鑰校驗 (Secret Token)"]
+        end
+    end
+
+    %% =======================
+    %% 3. 核心業務與排程層
+    %% =======================
+    subgraph CoreServices["⚙️ 核心服務與調度層 (Core Application Services)"]
+        direction TB
+        
+        Scheduler["⏰ 定時排程器 (scheduler.ts)<br/>• Asia/Taipei 時區校準<br/>• 晨報 08:00 & 晚報 17:00 定時觸發<br/>• 喚醒自動補發機制 (Catch-up)"]
+        
+        TelegramService["🤖 Telegram 業務控制器 (telegram.ts)<br/>• 指令解析 (/start, /brief, /contribute, /test)<br/>• 官方導覽氣泡與 [Menu] 快捷選單同步<br/>• Markdown 格式容錯與分段發送 (4096 字元限制)"]
+        
+        Curator["🧠 情報感知與精煉核心 (curator.ts)<br/>• 資料清洗與領域分類 (AI / 系統 / 科學 / PR)<br/>• 多語系雙語對照摘要<br/>• PR 獵場 Issue 難易度評級與認領指南"]
+    end
+
+    %% =======================
+    %% 4. 外部數據源與 AI 服務
+    %% =======================
+    subgraph ExternalServices["🌐 外部數據源與 AI 服務 (External Integrations)"]
+        direction LR
+        GeminiAI["✨ Google Gemini 3.8 Flash<br/>• 智能情報過濾與高濃度摘要<br/>• 代碼難度與貢獻引導生成"]
+        GitHubAPI["🐙 GitHub Search REST API<br/>• good-first-issues<br/>• help-wanted 標籤即時探測"]
+        HN_API["📰 Hacker News Official API<br/>• 科技圈與開源底層熱門討論"]
+        TGApi["✈️ Telegram Bot 官方 API<br/>• 訊息發送 / 廣播<br/>• 機器人簡介與指令菜單配置"]
+    end
+
+    %% =======================
+    %% 5. 數據持久化層
+    %% =======================
+    subgraph Persistence["💾 磁碟持久化與狀態存儲 (Persistence Layer)"]
+        direction LR
+        SubFile[("📁 data_subscribers.json<br/>真實用戶 Chat ID & 訂閱設定")]
+        StateFile[("📁 data_scheduler_state.json<br/>每日晨報/晚報發送紀錄與補發防重")]
+    end
+
+    %% =======================
+    %% 關係連線
+    %% =======================
+    TG_User <==>|"HTTPS / Long Polling"| TelegramTransport
+    Web_UI <==>|"REST API & 25s Ping"| ExpressServer
+    
+    NginxProxy --> ExpressServer
+    ExpressServer --> TelegramTransport
+    
+    TelegramTransport <==>|"指令派送 / 訊息響應"| TelegramService
+    Scheduler -->|"排程觸發 (08:00 / 17:00)"| Curator
+    TelegramService -->|"即時報告請求 (/brief)"| Curator
+    
+    Curator -->|"Prompt 語意精煉"| GeminiAI
+    Curator -->|"探測 PR 任務"| GitHubAPI
+    Curator -->|"抓取社群熱門"| HN_API
+    
+    Curator -->|"組裝 Markdown 報告"| TelegramService
+    TelegramService -->|"呼叫 sendMessage"| TGApi
+    TGApi -->|"推送通知"| TG_User
+    
+    TelegramService <==>|"讀寫訂閱者"| SubFile
+    Scheduler <==>|"記錄與檢查推播狀態"| StateFile
 ```
-┌────────────────────────────────────────────────────────┐
-│               Web 戰情儀表板 (React + Vite)             │
-│  - 最新報告檢視   - Telegram 互動模擬器   - 訂閱名單管理 │
-└───────────────────────────┬────────────────────────────┘
-                            │ REST API
-┌───────────────────────────▼────────────────────────────┐
-│              Express.js 後端服務 (server.ts)            │
-│  ┌──────────────────┐  ┌──────────────────┐            │
-│  │ 定時調度器        │  │ Telegram 雙軌服務│            │
-│  │ (scheduler.ts)   │  │ (telegram.ts)    │            │
-│  └────────┬─────────┘  └────────┬─────────┘            │
-│           │                     │                      │
-│  ┌────────▼─────────────────────▼─────────┐            │
-│  │   情報感知與 AI 精煉核心 (curator.ts)   │            │
-│  │   - GitHub Search API (Good First PR)  │            │
-│  │   - Hacker News Official API           │            │
-│  │   - Google Gemini 3.8 Flash LLM        │            │
-│  └────────────────────────────────────────┘            │
-└────────────────────────────────────────────────────────┘
-```
+
+### 🏛️ 架構核心設計與亮點解析
+
+| 架構層級 | 模組名稱 | 職責與設計特點 |
+| :--- | :--- | :--- |
+| **展示與保活層** | `Web Dashboard (React + Vite)` | 提供戰情大盤、手動觸發測試、訂閱者列表；內建 **25 秒保活心跳 (Heartbeat)**，避免雲端沙盒進入閒置休眠。 |
+| **接入與網關層** | `Telegram Dual-Engine` | 採用 **主動長輪詢 (Long Polling)** 作為預設通道，免除公網 IP 與認證反向代理阻擋，附帶 28 秒連線超時防護與 **30 秒看門狗自癒機制**；亦保留 Webhook 備援模式。 |
+| **排程調度層** | `Scheduler (scheduler.ts)` | 嚴格鎖定 `Asia/Taipei` (UTC+8) 時區，負責 **08:00** 與 **17:00** 的定時排程；具備 **Catch-up 智慧補發**，伺服器若遇短暫維護或重啟，喚醒時自動補發未發出的日報。 |
+| **情報感知層** | `Curator (curator.ts)` | 聚合 GitHub Search API（針對 `good first issue` / `help wanted`）、Hacker News API 與前沿論文來源，交由 **Google Gemini 3.8 Flash** 進行結構化提煉與 PR 貢獻引導。 |
+| **數據持久化層** | `Local JSON Datastore` | 採用原子化寫入的本地持久化磁碟檔案（`data_subscribers.json` 與 `data_scheduler_state.json`），確保用戶在 Telegram 點擊 `/start` 登記後，重啟容器不丟失名冊。 |
 
 ---
 

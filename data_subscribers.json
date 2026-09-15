@@ -1,0 +1,55 @@
+[
+  {
+    "chatId": "test-sim-user",
+    "type": "private",
+    "title": "Web Tester",
+    "username": "web_tester",
+    "preferredTopics": [
+      "ai",
+      "cs_infra",
+      "science",
+      "pr_contribution"
+    ],
+    "subscribedAt": "2026-09-14T09:46:15.401Z",
+    "isActive": true
+  },
+  {
+    "chatId": "demo-channel-1",
+    "type": "channel",
+    "title": "Open Source Pioneers (開源先鋒頻道)",
+    "username": "opensource_pioneers",
+    "subscribedAt": "2026-09-07T09:45:26.784Z",
+    "preferredTopics": [
+      "ai",
+      "cs_infra",
+      "pr_contribution"
+    ],
+    "isActive": true
+  },
+  {
+    "chatId": "demo-group-1",
+    "type": "group",
+    "title": "AI 研究與論文研討群",
+    "username": "ai_research_tw",
+    "subscribedAt": "2026-09-11T09:45:26.784Z",
+    "preferredTopics": [
+      "ai",
+      "science"
+    ],
+    "isActive": true
+  },
+  {
+    "chatId": "demo-user-1",
+    "type": "private",
+    "title": "Alex (開源貢獻者)",
+    "username": "alex_coder",
+    "subscribedAt": "2026-09-13T09:45:26.784Z",
+    "preferredTopics": [
+      "ai",
+      "cs_infra",
+      "pr_contribution",
+      "science"
+    ],
+    "isActive": true
+  }
+]

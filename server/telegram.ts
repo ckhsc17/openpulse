@@ -16,6 +16,7 @@ export class TelegramService {
   public lastUpdateAt: string | null = null;
   public lastError: string | null = null;
   public botUsername: string | null = null;
+  private watchdogTimer: NodeJS.Timeout | null = null;
 
   public get token(): string {
     return process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
@@ -26,20 +27,33 @@ export class TelegramService {
   }
 
   // Real Telegram API caller with timeout protection
-  public async callTelegramApi(method: string, body: Record<string, any>, signal?: AbortSignal): Promise<any> {
+  public async callTelegramApi(
+    method: string,
+    body: Record<string, any>,
+    signal?: AbortSignal,
+    timeoutMs: number = 25000
+  ): Promise<any> {
     if (!this.hasToken) {
       console.log(`[Telegram Sim] Mock call to ${method}:`, JSON.stringify(body).slice(0, 100));
       return { ok: true, result: { simulated: true } };
     }
 
     const url = `https://api.telegram.org/bot${this.token}/${method}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    if (signal) {
+      signal.addEventListener('abort', () => controller.abort());
+    }
+
     try {
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal,
+        signal: controller.signal,
       });
+      clearTimeout(timer);
       const data = await resp.json();
       if (!data.ok) {
         this.lastError = `[${method}] ${data.description || 'Unknown Telegram Error'}`;
@@ -49,8 +63,9 @@ export class TelegramService {
       }
       return data;
     } catch (err: any) {
+      clearTimeout(timer);
       if (err.name === 'AbortError') {
-        return { ok: false, description: 'Request aborted' };
+        return { ok: false, description: 'Request timeout or aborted' };
       }
       this.lastError = `[${method}] Network error: ${err.message}`;
       console.error(`Telegram API network error (${method}):`, err);
@@ -218,10 +233,19 @@ export class TelegramService {
   // Broadcast latest digest to all registered subscribers
   public async broadcastDigest(digest: DigestReport): Promise<{ sent: number; failed: number }> {
     const subscribers = store.getSubscribers().filter(s => s.isActive);
+    const realSubscribers = subscribers.filter(s => !String(s.chatId).startsWith('demo-'));
+    
+    console.log(`[Telegram Broadcast] Total subscribers in store: ${subscribers.length}, Real active Telegram chats: ${realSubscribers.length}`);
+
     let sent = 0;
     let failed = 0;
 
-    for (const sub of subscribers) {
+    if (realSubscribers.length === 0) {
+      console.warn(`[Telegram Broadcast] ⚠️ No real Telegram subscribers found yet!`);
+      console.warn(`[Telegram Broadcast] 提示：使用者需在 Telegram 搜尋 @${this.botUsername || 'open_pulse_bot'} 並發送 /start 或 /subscribe 以登記其 Chat ID。`);
+    }
+
+    for (const sub of realSubscribers) {
       try {
         const inlineKeyboard = {
           inline_keyboard: [
@@ -243,11 +267,14 @@ export class TelegramService {
 
         if (res.ok) {
           sent++;
+          console.log(`[Telegram Broadcast] ✅ Successfully delivered to chat ${sub.chatId} (${sub.username || sub.title})`);
         } else {
           failed++;
+          console.warn(`[Telegram Broadcast] ❌ Failed to deliver to chat ${sub.chatId}:`, res.description);
         }
-      } catch (e) {
+      } catch (e: any) {
         failed++;
+        console.error(`[Telegram Broadcast] Exception delivering to chat ${sub.chatId}:`, e.message);
       }
     }
 
@@ -320,6 +347,9 @@ export class TelegramService {
       } else if (data === 'cmd_subscribe') {
         const res = await this.handleIncomingCommand(chatId, '/subscribe');
         await this.sendMessage(chatId, res.replyText, { parseMode: 'Markdown' });
+      } else if (data === 'cmd_test_push') {
+        const res = await this.handleIncomingCommand(chatId, '/test');
+        await this.sendMessage(chatId, res.replyText, { parseMode: 'Markdown' });
       } else if (data === 'cmd_topics') {
         const res = await this.handleIncomingCommand(chatId, '/topics');
         await this.sendMessage(chatId, res.replyText, { parseMode: 'Markdown' });
@@ -373,16 +403,18 @@ export class TelegramService {
 
     // Polling loop
     (async () => {
+      console.log('[Telegram Poller] Poller loop started.');
       while (this.isPolling && this.hasToken) {
         this.lastPollAt = new Date().toISOString();
         try {
           const body: Record<string, any> = {
             offset: this.lastUpdateId ? this.lastUpdateId + 1 : 0,
-            timeout: 20, // 20s long poll
+            timeout: 20, // 20s long poll on Telegram's side
             allowed_updates: ['message', 'callback_query', 'channel_post'],
           };
 
-          const res = await this.callTelegramApi('getUpdates', body);
+          // 28s fetch timeout prevents dropped socket from hanging indefinitely
+          const res = await this.callTelegramApi('getUpdates', body, undefined, 28000);
 
           if (res.ok && Array.isArray(res.result)) {
             for (const update of res.result) {
@@ -390,23 +422,65 @@ export class TelegramService {
               await this.processRawUpdate(update);
             }
           } else if (!res.ok) {
-            // If conflict or error, wait 3 seconds before next cycle
-            await new Promise((r) => setTimeout(r, 3000));
+            // Wait 2 seconds before next cycle if timeout or error
+            await new Promise((r) => setTimeout(r, 2000));
           }
         } catch (err: any) {
           console.error('[Telegram Poller Loop Error]:', err.message);
-          await new Promise((r) => setTimeout(r, 3000));
+          await new Promise((r) => setTimeout(r, 2000));
         }
       }
+      console.log('[Telegram Poller] Poller loop stopped.');
     })();
+
+    // Poller Watchdog: detect if loop was killed by silent network socket freeze
+    if (!this.watchdogTimer) {
+      this.watchdogTimer = setInterval(() => {
+        if (!this.isPolling || !this.hasToken) return;
+        if (this.lastPollAt) {
+          const elapsed = Date.now() - new Date(this.lastPollAt).getTime();
+          if (elapsed > 55000) {
+            console.warn(`[Telegram Poller Watchdog] ⚠️ Loop silent for ${Math.round(elapsed / 1000)}s. Triggering automatic reconnect...`);
+            this.isPolling = false;
+            this.startPolling();
+          }
+        }
+      }, 30000);
+    }
   }
 
   public stopPolling(): void {
     this.isPolling = false;
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
     if (this.pollingAbortController) {
       this.pollingAbortController.abort();
       this.pollingAbortController = null;
     }
+  }
+
+  public getDiagnosticInfo() {
+    const subscribers = store.getSubscribers();
+    const realSubscribers = subscribers.filter(s => !String(s.chatId).startsWith('demo-'));
+    return {
+      hasToken: this.hasToken,
+      botUsername: this.botUsername,
+      isPolling: this.isPolling,
+      lastPollAt: this.lastPollAt,
+      lastUpdateAt: this.lastUpdateAt,
+      lastError: this.lastError,
+      totalSubscribers: subscribers.length,
+      realSubscribersCount: realSubscribers.length,
+      realSubscribers: realSubscribers.map(s => ({
+        chatId: s.chatId,
+        username: s.username,
+        title: s.title,
+        subscribedAt: s.subscribedAt,
+        isActive: s.isActive
+      }))
+    };
   }
 
   // Process incoming user messages and slash commands
@@ -420,31 +494,59 @@ export class TelegramService {
 
     if (cmd === '/start') {
       const name = fromInfo?.firstName || '開發者與研究夥伴';
+      
+      // Auto-enroll user as subscriber immediately upon starting the bot
+      store.addSubscriber({
+        chatId,
+        type: fromInfo?.isGroup ? 'group' : 'private',
+        title: fromInfo?.firstName || (fromInfo?.isGroup ? '技術群組' : 'Telegram 使用者'),
+        username: fromInfo?.username,
+        preferredTopics: ['ai', 'cs_infra', 'science', 'pr_contribution'],
+      });
+
       const welcome = `👋 嗨，*${name}*！歡迎使用 *OpenPulse* 開源與前沿科技情報機器人！
 
-🚀 *這個 Bot 為你做什麼？*
-每日於 *早上 08:00* 與 *下午 17:00*，自動為你精煉：
+🎉 *【已自動為你登記每日定時推播】*
+⏰ 每日 *早上 08:00* 與 *下午 17:00* (台北時間)，我們將準時把全球開源重大突破與 PR 獵場直送到你的手機！
+（如需退訂隨時輸入 /unsubscribe）
+
+🚀 *OpenPulse 涵蓋的四大前沿維度：*
 • 🤖 *AI 前沿研究*: 最新開源模型、論文解析 (arXiv, Hugging Face, DeepSeek, vLLM)
 • 💻 *資訊與基礎架構*: 高效能分散式系統、編譯器、資料庫、Rust/Go/C++ 生態
-• 🔬 *跨學科科學突破*: 生物計算、量子模擬與計算物理
-• 🛠️ *【獨家】開源 PR 獵場*: 為你精選熱門專案急需協助的 *Good First Issues*、代碼重構、單元測試或文件貢獻，附上手指南！
+• 🔬 *跨學科科學突破*: 蛋白質預測、量子模擬與計算生醫
+• 🛠️ *【獨家】開源 PR 獵場*: 為你精選熱門專案急需社群協助的 *Good First Issues* 與貢獻起步指南！
 
-📌 *你可以點擊下方按鈕或輸入指令：*
-/brief - 立即生成當前最新情報
-/contribute - 尋找適合認領的開源 PR / Issue
-/subscribe - 訂閱定時推播 (08:00 & 17:00)
-/topics - 自訂偏好領域
-/status - 檢視機器人運行狀態
-/help - 說明手冊`;
+點擊下方按鈕立即閱覽當前最新情報或開源 PR：`;
 
       const buttons = [
         { text: '⚡ 立即生成情報 (/brief)', callbackData: 'cmd_brief' },
         { text: '🛠️ 開源 PR 獵場 (/contribute)', callbackData: 'cmd_contribute' },
-        { text: '🔔 訂閱每日定時推送', callbackData: 'cmd_subscribe' },
-        { text: '⚙️ 偏好領域設定', callbackData: 'cmd_topics' },
+        { text: '📲 測試手機接收推播 (/test)', callbackData: 'cmd_test_push' },
+        { text: '⚙️ 偏好領域設定 (/topics)', callbackData: 'cmd_topics' },
       ];
 
       return { replyText: welcome, buttons };
+    }
+
+    if (cmd === '/test' || cmd === '/now' || cmd === '/catchup' || cmd === '/evening') {
+      // Auto-register in case they directly typed /test
+      store.addSubscriber({
+        chatId,
+        type: fromInfo?.isGroup ? 'group' : 'private',
+        title: fromInfo?.firstName || (fromInfo?.isGroup ? '技術群組' : 'Telegram 使用者'),
+        username: fromInfo?.username,
+        preferredTopics: ['ai', 'cs_infra', 'science', 'pr_contribution'],
+      });
+
+      const digest = store.getLatestDigest();
+      const confirmText = `🔔 *【測試推播成功！你的手機可正常接收情報】*\n\n${digest.telegramFormattedText}`;
+      return {
+        replyText: confirmText,
+        buttons: [
+          { text: '🛠️ 開源 PR 獵場', callbackData: 'cmd_contribute' },
+          { text: '🌐 在網頁詳細閱覽', url: process.env.APP_URL || 'https://ai.studio' },
+        ]
+      };
     }
 
     if (cmd === '/brief' || cmd === '/today' || cmd === '/news') {

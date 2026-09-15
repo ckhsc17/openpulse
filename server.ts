@@ -29,16 +29,24 @@ async function startServer() {
 
   // Bot Status & Info with Live Telegram Diagnostics
   app.get('/api/status', async (req, res) => {
+    // Auto-resume polling if it was stopped or container just recovered
+    if (telegramService.hasToken && !telegramService.isPolling) {
+      console.log('[API Status] Auto-resuming Telegram polling listener on incoming heartbeat...');
+      telegramService.startPolling();
+    }
+
     const me = await telegramService.getMe();
     const appUrl = process.env.APP_URL || '';
     const webhookUrl = appUrl ? `${appUrl.replace(/\/$/, '')}/api/telegram/webhook` : '';
     const status = store.getStatus(telegramService.hasToken, me.username, webhookUrl, telegramService.hasToken);
     res.json({
       ...status,
+      isPolling: telegramService.isPolling,
       lastPollAt: telegramService.lastPollAt,
       lastUpdateAt: telegramService.lastUpdateAt,
       lastError: telegramService.lastError,
       botUsername: telegramService.botUsername,
+      serverUptimeSec: Math.round(process.uptime()),
     });
   });
 
@@ -157,6 +165,54 @@ async function startServer() {
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Diagnostic Endpoint for Subscriber & Poller status
+  app.get('/api/telegram/diagnose', (req, res) => {
+    try {
+      const diag = telegramService.getDiagnosticInfo();
+      const schedulerState = scheduler.getState();
+      res.json({
+        ...diag,
+        scheduler: schedulerState,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Trigger Immediate Broadcast (Manual or Evening Catch-up)
+  app.post('/api/telegram/broadcast-now', async (req, res) => {
+    try {
+      const triggerType = req.body.triggerType || 'manual';
+      console.log(`[API] Manual broadcast requested: ${triggerType}`);
+      const digest = await scheduler.forceRun(triggerType);
+      res.json({
+        success: true,
+        triggerType,
+        deliveryStats: digest.deliveryStats,
+        digestId: digest.id,
+        itemsCount: digest.items.length,
+      });
+    } catch (err: any) {
+      console.error('[API] Broadcast error:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Explicit 17:00 Evening Digest Catch-up Broadcast
+  app.post('/api/telegram/catchup-1700', async (req, res) => {
+    try {
+      console.log(`[API] Catch-up 17:00 evening digest requested`);
+      const digest = await scheduler.forceRun('scheduled_evening');
+      res.json({
+        success: true,
+        deliveryStats: digest.deliveryStats,
+        digestTitle: digest.title,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
